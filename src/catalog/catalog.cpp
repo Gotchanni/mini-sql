@@ -55,8 +55,8 @@ CatalogMeta *CatalogMeta::DeserializeFrom(char *buf) {
  * TODO: Student Implement
  */
 uint32_t CatalogMeta::GetSerializedSize() const {
-  ASSERT(false, "Not Implemented yet");
-  return 0;
+  // 魔数(4) + 表数(4) + 索引数(4) + 表信息(8/个) + 索引信息(8/个)
+  return 4 + 4 + 4 + table_meta_pages_.size() * 8 + index_meta_pages_.size() * 8;
 }
 
 CatalogMeta::CatalogMeta() {}
