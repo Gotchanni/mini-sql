@@ -1,4 +1,4 @@
-#include "storage/disk_manager.h"
+ #include "storage/disk_manager.h"
 
 #include <sys/stat.h>
 
@@ -62,11 +62,17 @@ page_id_t DiskManager::AllocatePage() {
   // 获取当前元数据页中扩展区的数量
   uint32_t extent_num = meta_page->GetExtentNums();
   uint32_t extent_index;
-  for(uint32_t extent_index = 0 ; extent_index < extent_num ; extent_index++){
+  for(extent_index = 0 ; extent_index < extent_num ; extent_index++){
     // 检查当前扩展区是否还有可用页面
     // 如果扩展区内已使用的页面数小于位图大小，说明该扩展区还有可用页面，跳出循环
     if(meta_page->extent_used_page_[extent_index]<BITMAP_SIZE)
       break;
+  }
+
+  if (extent_index >= extent_num) {
+    // 所有现有扩展区都已满，需要创建新的扩展区
+    extent_index = extent_num;  // 使用新的扩展区索引
+    meta_page->num_extents_ = extent_num + 1;  // 更新扩展区数量
   }
 
   // 计算要操作的物理页号
