@@ -44,9 +44,9 @@ uint32_t Column::SerializeTo(char *buf) const {
   int tot=0;
   memcpy(buf+tot,&COLUMN_MAGIC_NUM,sizeof(uint32_t));
   tot+=sizeof(COLUMN_MAGIC_NUM);
-  size_t len = name_.length();
-  memcpy(buf+tot,&len,sizeof(len));
-  tot+=sizeof(len);
+  uint32_t len = static_cast<uint32_t>(name_.length());
+  memcpy(buf+tot,&len,sizeof(uint32_t));
+  tot+=sizeof(uint32_t);
   memcpy(buf+tot,name_.c_str(),len);
   tot+=len;
   memcpy(buf+tot,&type_,sizeof(type_));
@@ -81,8 +81,8 @@ uint32_t Column::DeserializeFrom(char *buf, Column *&column) {
   tot+=sizeof(magic_num);
   ASSERT(magic_num==COLUMN_MAGIC_NUM,"Wrong magic number for column.");
   
-  size_t name_len=MACH_READ_FROM(size_t,buf+tot);
-  tot+=sizeof(name_len);
+  uint32_t name_len=MACH_READ_UINT32(buf+tot);
+  tot+=sizeof(uint32_t);
   char name_buf[name_len+1];
   memcpy(name_buf,buf+tot,name_len);
   std::string name(name_buf,name_len/sizeof(char));

@@ -9,8 +9,8 @@ uint32_t Row::SerializeTo(char *buf, Schema *schema) const {
   // replace with your code here
   uint32_t tot = 0;
   uint32_t field_count = fields_.size();
-  memcpy(buf + tot, &field_count, sizeof(field_count));
-  tot += sizeof(field_count);
+  memcpy(buf + tot, &field_count, sizeof(uint32_t));
+  tot += sizeof(uint32_t);
 
   uint32_t bitmap_size = (field_count + 7) / 8;
   char *bitmap = buf+tot;
@@ -33,12 +33,12 @@ uint32_t Row::DeserializeFrom(char *buf, Schema *schema) {
   // replace with your code here
   uint32_t tot = 0;
   uint32_t field_count;
-  memcpy(&field_count, buf + tot, sizeof(field_count));
-  tot += sizeof(field_count);
+  memcpy(&field_count, buf + tot, sizeof(uint32_t));
+  tot += sizeof(uint32_t);
 
   char *bitmap = buf + tot;
   uint32_t bitmap_size = (field_count + 7) / 8;
-  memset(bitmap, 0, bitmap_size);
+  // memset(bitmap, 0, bitmap_size);
   tot += bitmap_size;
   fields_.clear();
   fields_.resize(field_count);
