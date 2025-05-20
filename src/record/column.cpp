@@ -40,7 +40,26 @@ Column::Column(const Column *other)
 */
 uint32_t Column::SerializeTo(char *buf) const {
   // replace with your code here
-  return 0;
+  // magic number + length of name + name + type + length + table_ind + nullable + unique
+  int tot=0;
+  memcpy(buf+tot,&COLUMN_MAGIC_NUM,sizeof(uint32_t));
+  tot+=sizeof(COLUMN_MAGIC_NUM);
+  size_t len = name_.length();
+  memcpy(buf+tot,&len,sizeof(len));
+  tot+=sizeof(len);
+  memcpy(buf+tot,name_.c_str(),len);
+  tot+=len;
+  memcpy(buf+tot,&type_,sizeof(type_));
+  tot+=sizeof(type_);
+  memcpy(buf+tot,&len_,sizeof(len_));
+  tot+=sizeof(len_);
+  memcpy(buf+tot,&table_ind_,sizeof(table_ind_));
+  tot+=sizeof(table_ind_);
+  memcpy(buf+tot,&nullable_,sizeof(nullable_));
+  tot+=sizeof(nullable_);
+  memcpy(buf+tot,&unique_,sizeof(unique_));
+  tot+=sizeof(unique_);
+  return tot;
 }
 
 /**
@@ -48,7 +67,8 @@ uint32_t Column::SerializeTo(char *buf) const {
  */
 uint32_t Column::GetSerializedSize() const {
   // replace with your code here
-  return 0;
+  return sizeof(COLUMN_MAGIC_NUM) + sizeof(uint32_t) + name_.length() + sizeof(type_) +
+         sizeof(len_) + sizeof(table_ind_) + sizeof(nullable_) + sizeof(unique_);
 }
 
 /**
@@ -56,5 +76,33 @@ uint32_t Column::GetSerializedSize() const {
  */
 uint32_t Column::DeserializeFrom(char *buf, Column *&column) {
   // replace with your code here
-  return 0;
+  int tot=0;
+  uint32_t magic_num=MACH_READ_UINT32(buf+tot);
+  tot+=sizeof(magic_num);
+  ASSERT(magic_num==COLUMN_MAGIC_NUM,"Wrong magic number for column.");
+  
+  size_t name_len=MACH_READ_FROM(size_t,buf+tot);
+  tot+=sizeof(name_len);
+  char name_buf[name_len+1];
+  memcpy(name_buf,buf+tot,name_len);
+  std::string name(name_buf,name_len/sizeof(char));
+  tot+=name_len;
+  TypeId type;
+  memcpy(&type,buf+tot,sizeof(type));
+  tot+=sizeof(type);
+  uint32_t len=MACH_READ_UINT32(buf+tot);
+  tot+=sizeof(len);
+  uint32_t index=MACH_READ_UINT32(buf+tot);
+  tot+=sizeof(index);
+  bool nullable=MACH_READ_FROM(bool,buf+tot);
+  tot+=sizeof(nullable);
+  bool unique=MACH_READ_FROM(bool,buf+tot);
+  tot+=sizeof(unique);
+  if(type==TypeId::kTypeChar){
+    column=new Column(name,type,len,index,nullable,unique);
+  }
+  else{
+    column=new Column(name,type,index,nullable,unique);
+  }
+  return tot;
 }
