@@ -9,8 +9,13 @@
 TableIterator::TableIterator(TableHeap *table_heap, RowId rid, Txn *txn): table_heap_(table_heap), current_row_id_(rid), txn_(txn) {
   if(rid == INVALID_ROWID) 
     return;
-  bool result = table_heap_->GetTuple(&current_row_,txn_);
-  ASSERT(result, "Failed to fetch tuple at table iterator init");
+  ASSERT(table_heap_, "TableHeap is nullptr.");
+  Row* row = new Row(current_row_id_);
+  table_heap_->GetTuple(row, nullptr);
+  ASSERT(row, "Invalid row.");
+  current_row_ = *row;
+  // bool result = table_heap_->GetTuple(&current_row_,txn_);
+  // ASSERT(result, "Failed to fetch tuple at table iterator init");
 }
 
 TableIterator::TableIterator(const TableIterator &other) {
@@ -65,8 +70,12 @@ TableIterator &TableIterator::operator++() {
 
     buf_pool->UnpinPage(current_page_id, false);
     current_row_id_ = next_row_id;
-    bool result = table_heap_->GetTuple(&current_row_, txn_);
+
+    Row new_row(current_row_id_);
+    bool result = table_heap_->GetTuple(&new_row, txn_);
     ASSERT(result, "TableIterator::operator++: GetTuple failed");
+
+    current_row_ = new_row;
     return *this;
   }
 
@@ -78,8 +87,12 @@ TableIterator &TableIterator::operator++() {
     if (page_->GetFirstTupleRid(&next_row_id)) {
       buf_pool->UnpinPage(next_page_id, false);
       current_row_id_ = next_row_id;
-      bool result = table_heap_->GetTuple(&current_row_, txn_);
+
+      Row new_row(current_row_id_);
+      bool result = table_heap_->GetTuple(&new_row, txn_);
       ASSERT(result, "TableIterator::operator++: GetTuple failed on new page");
+
+      current_row_ = new_row;
       return *this;
     }
     page_id_t next_page_id_temp = page_->GetNextPageId(); 

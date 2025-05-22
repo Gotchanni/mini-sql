@@ -110,7 +110,10 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
 
   table_id_t table_id = next_table_id_++;
 
-  TableHeap *table_heap = TableHeap::Create(buffer_pool_manager_, schema, txn, log_manager_, lock_manager_);
+  TableSchema *table_schema = Schema::DeepCopySchema(schema); //深拷贝
+  
+
+  TableHeap *table_heap = TableHeap::Create(buffer_pool_manager_, table_schema, txn, log_manager_, lock_manager_);
   if (table_heap == nullptr) {
     return DB_FAILED;
   }
@@ -122,8 +125,8 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
     return DB_FAILED;
   }
 
-  TableSchema *table_schema = Schema::DeepCopySchema(schema); //深拷贝
   TableMetadata *table_meta = TableMetadata::Create(table_id, table_name, table_heap->GetFirstPageId(), table_schema);
+  
   
   table_meta->SerializeTo(meta_page->GetData());
   buffer_pool_manager_->UnpinPage(meta_page_id, true);
