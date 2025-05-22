@@ -22,12 +22,16 @@ BPlusTree::BPlusTree(index_id_t index_id, BufferPoolManager *buffer_pool_manager
             return;
         }
         IndexRootsPage *header_page = reinterpret_cast<IndexRootsPage *>(header_page_obj->GetData());
+        root_page_id_ = INVALID_PAGE_ID;
         page_id_t temp_root_page_id;
-        if(!header_page->GetRootId(index_id_,&temp_root_page_id)){
-          root_page_id_ = INVALID_PAGE_ID;
-          UpdateRootPageId(1);
+        if (header_page->GetRootId(index_id_, &temp_root_page_id)) {
+          root_page_id_ = temp_root_page_id;
         }
         buffer_pool_manager_->UnpinPage(INDEX_ROOTS_PAGE_ID,false);
+        if(leaf_max_size == UNDEFINED_SIZE)
+          leaf_max_size_ = (PAGE_SIZE - LEAF_PAGE_HEADER_SIZE) / (processor_.GetKeySize() + sizeof(RowId));
+        if(internal_max_size == UNDEFINED_SIZE)
+          internal_max_size_ = (PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / (processor_.GetKeySize() + sizeof(page_id_t));
         
 }
 
@@ -167,7 +171,7 @@ bool BPlusTree::GetValue(const GenericKey *key, std::vector<RowId> &result, Txn 
   bool found = leaf_node->Lookup(key, temp_row_id, processor_); // Pass temp_row_id
 
   if (found) {
-    result.clear(); // Ensure result vector is clean for the single value
+    //result.clear(); // Ensure result vector is clean for the single value
     result.push_back(temp_row_id); // Add the found RowId to the result vector
   }
 
@@ -207,10 +211,10 @@ void BPlusTree::StartNewTree(GenericKey *key, const RowId &value) {
     throw std::exception();
   }
   LeafPage *root_page = reinterpret_cast<LeafPage *>(page_obj->GetData());
-  root_page->Init(INVALID_PAGE_ID,leaf_max_size_);
+  root_page->Init(root_page_id_, INVALID_PAGE_ID, processor_.GetKeySize(), leaf_max_size_);
   root_page->Insert(key,value,processor_);
   buffer_pool_manager_->UnpinPage(root_page_id_,true);
-  UpdateRootPageId(0);
+  UpdateRootPageId(1);
 
 }
 
