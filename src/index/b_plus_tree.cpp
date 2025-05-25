@@ -57,7 +57,17 @@ void BPlusTree::Destroy(page_id_t current_page_id) {
       if (actual_root_page_id != INVALID_PAGE_ID) {
         // 如果获取到的根页面ID是有效的，就以这个ID为起点，开始递归销毁过程。
         Destroy(actual_root_page_id); 
-        
+        Page *roots_page_obj = buffer_pool_manager_->FetchPage(INDEX_ROOTS_PAGE_ID);
+        if (roots_page_obj != nullptr) {
+          IndexRootsPage *roots_page = reinterpret_cast<IndexRootsPage *>(roots_page_obj->GetData());
+          // 删除当前索引ID对应的记录
+          if (roots_page->Delete(index_id_)) {
+            // 成功删除，标记页面为脏
+            buffer_pool_manager_->UnpinPage(INDEX_ROOTS_PAGE_ID, true);
+          } else {
+            buffer_pool_manager_->UnpinPage(INDEX_ROOTS_PAGE_ID, false);
+          }
+        }
         // 根据具体需求，这里可能需要重新获取 header_page 并调用 header_page->Delete(index_id_)
         // 或者将其 root_id 更新为 INVALID_PAGE_ID。
       }
