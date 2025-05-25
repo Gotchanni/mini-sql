@@ -283,7 +283,7 @@ bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transac
   // 步骤 4: 如果叶子页面未满，则插入键和值
   if (leaf_node->GetSize() < leaf_node->GetMaxSize()) { 
     leaf_node->Insert(key, value, processor_);
-    buffer_pool_manager_->UnpinPage(leaf_page_id, true); // 释放 leaf_node 页面 (标记为脏页)
+    buffer_pool_manager_->UnpinPage(leaf_page_id, false); // 释放 leaf_node 页面 (标记为脏页)
     return true;
   }
 
@@ -312,8 +312,8 @@ bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transac
   InsertIntoParent(leaf_node, promoted_key, new_leaf_node, transaction);
   
 
-  buffer_pool_manager_->UnpinPage(leaf_page_id, true);             // 解锁原始叶子页面 (现在是左孩子)，标记为脏页。
-  buffer_pool_manager_->UnpinPage(new_leaf_node->GetPageId(), true); // 解锁新叶子页面 (现在是右孩子)，标记为脏页。
+  buffer_pool_manager_->UnpinPage(leaf_page_id, false);             // 解锁原始叶子页面 (现在是左孩子)，标记为脏页。
+  //buffer_pool_manager_->UnpinPage(new_leaf_node->GetPageId(), false); // 解锁新叶子页面 (现在是右孩子)，标记为脏页。
   
   return true;
 }
@@ -332,8 +332,9 @@ BPlusTreeInternalPage *BPlusTree::Split(InternalPage *node, Txn *transaction) {
     throw std::exception();
   }
   InternalPage *new_internal_node = reinterpret_cast<InternalPage *>(page_obj->GetData());
-  new_internal_node->Init(INVALID_PAGE_ID,node->GetParentPageId(),node->GetKeySize(),node->GetMaxSize());
+  new_internal_node->Init(new_page_id,node->GetParentPageId(),node->GetKeySize(),internal_max_size_);
   node->MoveHalfTo(new_internal_node,buffer_pool_manager_);
+  buffer_pool_manager_->UnpinPage(new_page_id,true);
   return new_internal_node;
 }
 
@@ -344,8 +345,10 @@ BPlusTreeLeafPage *BPlusTree::Split(LeafPage *node, Txn *transaction) {
     throw std::exception();
   }
   LeafPage *new_leaf_node = reinterpret_cast<LeafPage *>(page_obj->GetData());
-  new_leaf_node->Init(INVALID_PAGE_ID,node->GetParentPageId(),node->GetKeySize(),node->GetMaxSize());
+  new_leaf_node->Init(new_page_id,node->GetParentPageId(),node->GetKeySize(),leaf_max_size_);
   node->MoveHalfTo(new_leaf_node);
+  new_leaf_node->SetNextPageId(node->GetNextPageId());
+  buffer_pool_manager_->UnpinPage(new_page_id,true);
   return new_leaf_node;
 }
 
@@ -360,31 +363,34 @@ BPlusTreeLeafPage *BPlusTree::Split(LeafPage *node, Txn *transaction) {
  */
 void BPlusTree::InsertIntoParent(BPlusTreePage *old_node, GenericKey *key, BPlusTreePage *new_node, Txn *transaction) {
   if(old_node->IsRootPage()){
-    Page *page_obj = buffer_pool_manager_->NewPage(root_page_id_);
+    page_id_t new_page_id;
+    Page *page_obj = buffer_pool_manager_->NewPage(new_page_id);
     if(page_obj == nullptr){
       throw std::exception();
     }
     InternalPage *new_root = reinterpret_cast<InternalPage *>(page_obj->GetData());
-    new_root->Init(INVALID_PAGE_ID,INVALID_PAGE_ID,old_node->GetKeySize(),old_node->GetMaxSize());
+    new_root->Init(new_page_id,INVALID_PAGE_ID,old_node->GetKeySize(),internal_max_size_);
     new_root->PopulateNewRoot(old_node->GetPageId(),key,new_node->GetPageId());
-    old_node->SetParentPageId(new_root->GetPageId());
-    new_node->SetParentPageId(new_root->GetPageId());
+    old_node->SetParentPageId(new_page_id);
+    new_node->SetParentPageId(new_page_id);
+    root_page_id_ = new_page_id;
     UpdateRootPageId(0);
-    buffer_pool_manager_->UnpinPage(new_root->GetPageId(),true);
+    buffer_pool_manager_->UnpinPage(new_page_id,true);
     return;
   }
-  Page *page_obj = buffer_pool_manager_->FetchPage(old_node->GetParentPageId());
-  if(page_obj == nullptr){
+  Page *page = buffer_pool_manager_->FetchPage(old_node->GetParentPageId());
+  if(page == nullptr){
     throw std::exception();
   }
-  InternalPage *parent = reinterpret_cast<InternalPage *>(page_obj->GetData());
-  parent->InsertNodeAfter(old_node->GetPageId(),key,new_node->GetPageId());
-  if(parent->GetSize() > parent->GetMaxSize()){
+  InternalPage *parent = reinterpret_cast<InternalPage *>(page->GetData());
+  int size = parent->InsertNodeAfter(old_node->GetPageId(),key,new_node->GetPageId());
+  if(size == internal_max_size_){
     BPlusTreeInternalPage *new_parent = Split(parent,transaction);
     GenericKey *promoted_key = new_parent->KeyAt(0);    // 使用新父节点的第一个键作为提升键
     InsertIntoParent(parent, promoted_key, new_parent, transaction);
   }
-  buffer_pool_manager_->UnpinPage(parent->GetPageId(),true);
+  buffer_pool_manager_->UnpinPage(page->GetPageId(),true);
+  return;
 }
 
 /*****************************************************************************
