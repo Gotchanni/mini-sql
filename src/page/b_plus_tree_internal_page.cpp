@@ -429,3 +429,16 @@ void InternalPage::CopyFirstFrom(const page_id_t value, BufferPoolManager *buffe
   // 4. 增加当前页面的大小。
   IncreaseSize(1);
 }
+page_id_t InternalPage::LeftMostKeyFromCurr(BufferPoolManager *buffer_pool_manager) {
+  Page *currPage = buffer_pool_manager->FetchPage(this->GetPageId());
+  auto *curr = reinterpret_cast<BPlusTreePage *>(currPage->GetData());
+  InternalPage *internalPage;
+  while (!curr->IsLeafPage()) {//由于curr是由this转换过来的，所以至少可以进入一次
+    buffer_pool_manager->UnpinPage(curr->GetPageId(), false);           // 每找一层关闭上一层的内节点page
+    internalPage = reinterpret_cast<::InternalPage *>(currPage);  // 打开上一层内节点page
+    currPage = buffer_pool_manager->FetchPage(internalPage->ValueAt(0));  // 改变当前页的指针
+    curr = reinterpret_cast<BPlusTreePage *>(currPage->GetData());
+  }
+  buffer_pool_manager->UnpinPage(curr->GetPageId(),false);
+  return internalPage->ValueAt(0);
+}
