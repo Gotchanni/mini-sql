@@ -62,7 +62,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
 
   void MoveLastToFrontOf(BPlusTreeInternalPage *recipient, GenericKey *middle_key,
                          BufferPoolManager *buffer_pool_manager);
-
+  page_id_t LeftMostKeyFromCurr(BufferPoolManager *buffer_pool_manager);
  private:
   void CopyNFrom(void *src, int size, BufferPoolManager *buffer_pool_manager);
 
