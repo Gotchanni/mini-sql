@@ -356,138 +356,89 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
     return DB_FAILED;
   }
 
-  pSyntaxNode table_name_node = ast->child_;
-  string table_name = table_name_node->val_;
+  auto clm = context->GetCatalog();
+  string table_name = ast->child_->val_;
+  auto column_first_node = ast->child_->next_->child_;
+  auto node = column_first_node;
 
   TableInfo *table_info = nullptr;
   if (dbs_[current_db_]->catalog_mgr_->GetTable(table_name, table_info) == DB_SUCCESS) {
     return DB_TABLE_ALREADY_EXIST;
   }
 
-  vector<Column *> columns;
   vector<string> primary_keys;
+  vector<string> unique_keys;
 
-  pSyntaxNode column_list = table_name_node->next_;
-  if (column_list == nullptr || column_list->child_ == nullptr) {
-    return DB_FAILED;
+  while (node != nullptr) {
+    if (node->type_ == kNodeColumnList && string(node->val_) == "primary keys") {
+      auto primary_node = node->child_;
+      while (primary_node != nullptr) {
+        primary_keys.push_back(string(primary_node->val_));
+        primary_node = primary_node->next_;
+      }
+    }
+    node = node->next_;
   }
-  pSyntaxNode column_node = column_list->child_;
-  uint32_t column_index = 0;
 
-  while(column_node != nullptr) {
-    if (column_node->type_ == kNodeColumnDefinition) {
-      string column_name = column_node->child_->val_;
-
-      pSyntaxNode type_node = column_node->child_->next_;
-      TypeId type_id;
-      uint32_t length = 0;
-
-      if (strcmp(type_node->val_, "int") == 0) {
-        type_id = TypeId::kTypeInt;
-      } else if (strcmp(type_node->val_, "float") == 0) {
-        type_id = TypeId::kTypeFloat;
-      } else if (strcmp(type_node->val_, "char") == 0) {
-        type_id = TypeId::kTypeChar;
-        if (type_node->child_ != nullptr && type_node->child_->type_ == kNodeNumber) {
-          int char_length = atoi(type_node->child_->val_);
-          if (char_length <= 0) {
-            cout << "Invalid char length" << endl;
-            for (auto col : columns) {
-              delete col;
-            }
-            return DB_FAILED;
-          }
-          length = char_length;
+  node = column_first_node;
+  uint32_t index = 0;
+  vector<Column *> columns;
+  
+  while (node != nullptr && node->type_ == kNodeColumnDefinition) {
+    bool unique = (node->val_ != nullptr && string(node->val_) == "unique");
+    auto detail_node = node->child_;
+    string column_name(detail_node->val_);
+    string type(detail_node->next_->val_);
+    Column *column = nullptr;
+    if (type == "int") {
+      column = new Column(column_name, kTypeInt, index, true, unique);
+    }
+    if (type == "float") {
+      column = new Column(column_name, kTypeFloat, index, true, unique);
+    }
+    if (type == "char") {
+      string len(detail_node->next_->child_->val_);
+      for (auto it : len) {
+        if (!isdigit(it)) {
+          return DB_FAILED;
         }
-      } else {
-        cout << "Unknown data type" << endl;
-        for (auto col : columns) {
-          delete col;
-        }
+      }
+      if (stoi(len) < 0) {
         return DB_FAILED;
       }
-
-      bool is_unique = false;
-      bool is_nullable = true;
-      pSyntaxNode constraint_node =type_node->next_;
-
-      while (constraint_node != nullptr) {
-        if (constraint_node->type_ == kNodeColumnType) {
-          if (strcmp(constraint_node->val_, "UNIQUE") == 0) {
-            is_unique = true;
-          } else if (strcmp(constraint_node->val_, "NOT NULL") == 0) {
-            is_nullable = false;
-          } else if (strcmp(constraint_node->val_, "NULL") == 0) {
-            is_nullable = true;
-          }
-        } else if (constraint_node->type_ == kNodeIdentifier && strcmp(constraint_node->val_, "PRIMARY") == 0) {
-          primary_keys.push_back(column_name);
-          is_nullable = false;
-        }
-        constraint_node = constraint_node->next_;
-      }
-
-      Column *column = new Column(column_name, type_id, length, column_index++, is_nullable, is_unique);
-      columns.push_back(column);
+      column = new Column(column_name, kTypeChar, stoi(len), index, true, unique);
     }
-
-    column_node = column_node->next_;
-  }
-
-  pSyntaxNode constraint_node = column_list->child_;
-  while (constraint_node != nullptr) {
-    if (constraint_node->type_ == kNodeColumnType && strcmp(constraint_node->val_, "PRIMARY KEY") == 0) {
-      pSyntaxNode pk_columns = constraint_node->child_;
-      while (pk_columns != nullptr) {
-        if (pk_columns->type_ == kNodeIdentifier) {
-          string pk_column = pk_columns->val_;
-          if (find(primary_keys.begin(), primary_keys.end(), pk_column) == primary_keys.end()) {
-            primary_keys.push_back(pk_column);
-            for (size_t i = 0; i < columns.size(); i++) {
-              if (columns[i]->GetName() == pk_column) {
-                
-                string name = columns[i]->GetName();
-                TypeId type = columns[i]->GetType();
-                uint32_t length = columns[i]->GetLength();
-                uint32_t index = columns[i]->GetTableInd();
-                bool unique = columns[i]->IsUnique();
-                
-                delete columns[i];
-                columns[i] = new Column(name, type, length, index, false, unique);
-                break;
-              }
-            }
-          }
-        }
-        pk_columns = pk_columns->next_;
-      }
+    if (unique) {
+      unique_keys.push_back(column_name);
     }
-    constraint_node = constraint_node->next_;
+    columns.push_back(column);
+    index++;
+    node = node->next_;
   }
 
-  TableSchema *schema = new TableSchema(columns);
-
-  dberr_t result = dbs_[current_db_]->catalog_mgr_->CreateTable(table_name, schema, nullptr, table_info);
-  if (result != DB_SUCCESS) {
-    delete schema;
-    return result;
+  Schema *schema = new Schema(columns);
+  auto res = clm->CreateTable(table_name, schema, context->GetTransaction(), table_info);
+  if (res != DB_SUCCESS) {
+    return res;
   }
 
-  if (!primary_keys.empty()) {
-    IndexInfo *index_info = nullptr;
-    dbs_[current_db_]->catalog_mgr_->CreateIndex(table_name, "PRIMARY_KEY", primary_keys, nullptr, index_info, "bptree");
+  for (auto it : unique_keys) {
+    string index_name = "UNIQUE_";
+    index_name += it + "_";
+    index_name += "ON_" + table_name;
+    IndexInfo *index_info;
+    clm->CreateIndex(table_name, index_name, unique_keys, context->GetTransaction(), index_info, "btree");
   }
 
-  for (const auto &col : columns) {
-    if (col->IsUnique() && std::find(primary_keys.begin(), primary_keys.end(), col->GetName()) == primary_keys.end()) {
-      vector<string> unique_key = {col->GetName()};
-      IndexInfo *index_info = nullptr;
-      dbs_[current_db_]->catalog_mgr_->CreateIndex(table_name, "UNIQUE_" + col->GetName(), unique_key, nullptr, index_info, "bptree");
-    }
+  if(primary_keys.size() > 0) {
+    string index_name = "AUTO_CREATED_INDEX_OF_";
+    for (auto it: primary_keys) index_name += it + "_";
+    index_name += "ON_" + table_name;
+    IndexInfo *index_info;
+    clm->CreateIndex(table_name, index_name, primary_keys, context->GetTransaction(), index_info, "btree");
   }
 
-  cout << "Table '" << table_name << "' created." << endl;
-  return DB_SUCCESS;
+  return res;
 }
 
 /**
@@ -693,6 +644,10 @@ dberr_t ExecuteEngine::ExecuteDropIndex(pSyntaxNode ast, ExecuteContext *context
 
   if (current_db_.empty()) {
     cout << "No database selected" << endl;
+    return DB_FAILED;
+  }
+
+  if (ast == nullptr || ast->child_ == nullptr) {
     return DB_FAILED;
   }
 

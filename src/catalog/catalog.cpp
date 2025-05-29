@@ -315,6 +315,10 @@ dberr_t CatalogManager::DropIndex(const string &table_name, const string &index_
   index_id_t index_id = index_names_.at(table_name).at(index_name);
   IndexInfo *index_info = indexes_.at(index_id);
 
+  if (index_info->GetIndex()->Destroy() != DB_SUCCESS) {
+    return DB_FAILED;
+  }
+
   index_names_.at(table_name).erase(index_name);
   if (index_names_.at(table_name).empty()) {
     index_names_.erase(table_name);
