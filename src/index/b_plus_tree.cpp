@@ -275,7 +275,7 @@ bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transac
   RowId temp_val; // Lookup 需要一个 RowId 参数, 但此处我们不关心其值
   if (leaf_node->Lookup(key, temp_val, processor_)) {
     // 键已存在，不允许插入重复键
-    std::cout << "Duplicate key" << std::endl; // 
+    // std::cout << "Duplicate key" << std::endl; // 
     buffer_pool_manager_->UnpinPage(leaf_page_id, false); // 释放 leaf_node 页面
     return false; // 重复键返回 false
   }
@@ -283,7 +283,7 @@ bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transac
   // 步骤 4: 如果叶子页面未满，则插入键和值
   if (leaf_node->GetSize() < leaf_node->GetMaxSize()) { 
     leaf_node->Insert(key, value, processor_);
-    buffer_pool_manager_->UnpinPage(leaf_page_id, false); // 释放 leaf_node 页面 (标记为脏页)
+    buffer_pool_manager_->UnpinPage(leaf_page_id, true); // 释放 leaf_node 页面 (标记为脏页)
     return true;
   }
 
@@ -292,7 +292,7 @@ bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transac
                                                           // Split 应该处理新页面的分配、锁定、数据迁移，并返回锁定的 new_leaf_node。
                                                           // leaf_node (原始页面) 也被修改并保持锁定状态。
   if (new_leaf_node == nullptr) {
-      buffer_pool_manager_->UnpinPage(leaf_page_id, false); // 解锁原始叶子页面
+      buffer_pool_manager_->UnpinPage(leaf_page_id, true); // 解锁原始叶子页面
       return false; // 或者抛出异常
   }
   
@@ -432,7 +432,7 @@ void BPlusTree::Remove(const GenericKey *key, Txn *transaction) {
   bool deleted = false;
 
   if (size < leaf_page->GetMinSize()) {
-    deleted = CoalesceOrRedistribute(leaf_page, transaction);
+    deleted = CoalesceOrRedistribute(leaf_page, transaction);//check
   } else if (is_first_key && !leaf_page->IsRootPage()) {
     // 如果删除的是第一个键，需要向上更新父节点中的键
     GenericKey *update_key = leaf_page->KeyAt(0);
@@ -462,6 +462,7 @@ void BPlusTree::Remove(const GenericKey *key, Txn *transaction) {
           buffer_pool_manager_->UnpinPage(parent->GetPageId(), false);
         }
       }
+      else buffer_pool_manager_->UnpinPage(parent->GetPageId(), false); // debug：如果一路上去都是最左边节点则不需要更新但一定要UnpinPage！！
     }
   }
 
@@ -469,8 +470,11 @@ void BPlusTree::Remove(const GenericKey *key, Txn *transaction) {
   if (!deleted) {
     buffer_pool_manager_->UnpinPage(current_leaf_page_id, true);
   } else {
-    buffer_pool_manager_->DeletePage(current_leaf_page_id);
+    // buffer_pool_manager_->UnpinPage(current_leaf_page_id, true); // debug
+    // buffer_pool_manager_->DeletePage(current_leaf_page_id);
   }
+  // buffer_pool_manager_->UnpinPage(current_leaf_page_id, true);
+  // if(deleted) buffer_pool_manager_->DeletePage(current_leaf_page_id);
 }
 
 /* todo
@@ -481,7 +485,7 @@ void BPlusTree::Remove(const GenericKey *key, Txn *transaction) {
  * deletion happens
  */
 template <typename N>
-bool BPlusTree::CoalesceOrRedistribute(N *&node, Txn *transaction) {
+bool BPlusTree::CoalesceOrRedistribute(N *&node, Txn *transaction) {//debug:理清楚Coalesce调用逻辑，返回true则调用者unpin，返回false则内部unpin+delete
   // 如果 page 是根页面，直接调整根
   if (node->IsRootPage()) {
     return AdjustRoot(node);
@@ -594,8 +598,8 @@ bool BPlusTree::CoalesceOrRedistribute(N *&node, Txn *transaction) {
       throw std::runtime_error("Failed to fetch right sibling page for coalesce.");
     }
     N *right_sibling = reinterpret_cast<N *>(right_sibling_page->GetData());
-    parent_may_need_adjustment = Coalesce(node, right_sibling, parent, node_index + 1, transaction);
-    buffer_pool_manager_->UnpinPage(right_sibling_id, true);
+    parent_may_need_adjustment = Coalesce(node, right_sibling, parent, node_index + 1, transaction);//debug:node\right_sbling参数传反了
+    buffer_pool_manager_->UnpinPage(node->GetPageId(), true);
   }
 
   // 处理父节点
@@ -603,6 +607,13 @@ bool BPlusTree::CoalesceOrRedistribute(N *&node, Txn *transaction) {
     if (!CoalesceOrRedistribute(parent, transaction)) {
       buffer_pool_manager_->UnpinPage(parent_id, true);
     }
+    // else {
+    //   buffer_pool_manager_->UnpinPage(parent_id, true);
+    //   buffer_pool_manager_->DeletePage(parent_id);
+    // }
+    // bool deleted = CoalesceOrRedistribute(parent, transaction);
+    // buffer_pool_manager_->UnpinPage(parent_id, true);
+    // if(deleted) buffer_pool_manager_->DeletePage(parent_id); // debug
   } else {
     buffer_pool_manager_->UnpinPage(parent_id, true);
   }
@@ -754,6 +765,8 @@ bool BPlusTree::AdjustRoot(BPlusTreePage *old_root_node) {
       return false;
     }
     // 叶子节点为空，删除整个树
+    buffer_pool_manager_->UnpinPage(old_root_node->GetPageId(), true);
+    buffer_pool_manager_->DeletePage(old_root_node->GetPageId());
     root_page_id_ = INVALID_PAGE_ID;
     UpdateRootPageId(0);
     return true;
@@ -768,6 +781,9 @@ bool BPlusTree::AdjustRoot(BPlusTreePage *old_root_node) {
   if (child_page_obj == nullptr) {
     throw std::runtime_error("AdjustRoot: Failed to fetch the new root page.");
   }
+
+  buffer_pool_manager_->UnpinPage(old_root_node->GetPageId(), true);
+  buffer_pool_manager_->DeletePage(old_root_node->GetPageId());
   
   // 设置新的根节点
   BPlusTreePage *new_root_node = reinterpret_cast<BPlusTreePage *>(child_page_obj->GetData());

@@ -135,8 +135,10 @@ bool BufferPoolManager::DeletePage(page_id_t page_id) {
   frame_id_t tmp = page_table_[page_id];
   //如果页号的pin_count_不为0，则返回false
   //表示该页正在被使用
-  if(pages_[tmp].pin_count_>0)
+  if(pages_[tmp].pin_count_>0){
+    std::cout<<"0-Error"<<std::endl;
     return false;
+  }
   //从replacer_中删除该页
   page_table_.erase(page_id);
   pages_[tmp].ResetMemory();
@@ -158,8 +160,10 @@ bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
   }
   //从page_table_中获取页号
   frame_id_t tmp = page_table_[page_id];
-  if(pages_[tmp].pin_count_==0) 
+  if(pages_[tmp].pin_count_==0) {
+    // std::cout<<"Unpin-Warning"<<std::endl;
     return true;
+  }
   //如果页号的pin_count_不为0，则将其pin_count_减1
   pages_[tmp].pin_count_--;
   //如果页号的pin_count_为0，则将其从replacer_中删除
