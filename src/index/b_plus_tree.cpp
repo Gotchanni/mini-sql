@@ -295,6 +295,8 @@ bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transac
       buffer_pool_manager_->UnpinPage(leaf_page_id, true); // 解锁原始叶子页面
       return false; // 或者抛出异常
   }
+
+  leaf_node->SetNextPageId(new_leaf_node->GetPageId()); // 更新原始叶子页面的 next_page_id 指向新叶子页面。
   
   // 需要提升到父节点的键是新右兄弟节点的第一个键。
   GenericKey *promoted_key = new_leaf_node->KeyAt(0);

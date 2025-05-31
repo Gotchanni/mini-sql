@@ -41,7 +41,8 @@ ExecuteEngine::ExecuteEngine() {
       continue;
     dbs_[stdir->d_name] = new DBStorageEngine(stdir->d_name, false);
   }
-   **/
+  **/
+  
   closedir(dir);
 }
 
@@ -356,19 +357,26 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
     return DB_FAILED;
   }
 
-  auto clm = context->GetCatalog();
-  string table_name = ast->child_->val_;
-  auto column_first_node = ast->child_->next_->child_;
-  auto node = column_first_node;
+  pSyntaxNode table_name_node = ast->child_;
+  string table_name = table_name_node->val_;
 
   TableInfo *table_info = nullptr;
   if (dbs_[current_db_]->catalog_mgr_->GetTable(table_name, table_info) == DB_SUCCESS) {
     return DB_TABLE_ALREADY_EXIST;
   }
 
+  vector<Column *> columns;
   vector<string> primary_keys;
   vector<string> unique_keys;
 
+  pSyntaxNode column_list = table_name_node->next_;
+  if (column_list == nullptr || column_list->child_ == nullptr) {
+    return DB_FAILED;
+  }
+  pSyntaxNode column_node = column_list->child_;
+  uint32_t column_index = 0;
+
+  auto node = column_node;
   while (node != nullptr) {
     if (node->type_ == kNodeColumnList && string(node->val_) == "primary keys") {
       auto primary_node = node->child_;
@@ -380,65 +388,79 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
     node = node->next_;
   }
 
-  node = column_first_node;
-  uint32_t index = 0;
-  vector<Column *> columns;
-  
-  while (node != nullptr && node->type_ == kNodeColumnDefinition) {
-    bool unique = (node->val_ != nullptr && string(node->val_) == "unique");
-    auto detail_node = node->child_;
-    string column_name(detail_node->val_);
-    string type(detail_node->next_->val_);
-    Column *column = nullptr;
-    if (type == "int") {
-      column = new Column(column_name, kTypeInt, index, true, unique);
-    }
-    if (type == "float") {
-      column = new Column(column_name, kTypeFloat, index, true, unique);
-    }
-    if (type == "char") {
-      string len(detail_node->next_->child_->val_);
-      for (auto it : len) {
-        if (!isdigit(it)) {
-          return DB_FAILED;
+  while(column_node != nullptr) {
+    if (column_node->type_ == kNodeColumnDefinition) {
+      bool unique = (column_node->val_ != nullptr && string(column_node->val_) == "unique");
+      string column_name = column_node->child_->val_;
+
+      pSyntaxNode type_node = column_node->child_->next_;
+      TypeId type_id;
+      uint32_t length = 0;
+
+      if (strcmp(type_node->val_, "int") == 0) {
+        type_id = TypeId::kTypeInt;
+      } else if (strcmp(type_node->val_, "float") == 0) {
+        type_id = TypeId::kTypeFloat;
+      } else if (strcmp(type_node->val_, "char") == 0) {
+        type_id = TypeId::kTypeChar;
+        if (type_node->child_ != nullptr && type_node->child_->type_ == kNodeNumber) {
+          int char_length = atoi(type_node->child_->val_);
+          if (char_length <= 0) {
+            cout << "Invalid char length" << endl;
+            for (auto col : columns) {
+              delete col;
+            }
+            return DB_FAILED;
+          }
+          length = char_length;
         }
-      }
-      if (stoi(len) < 0) {
+      } else {
+        cout << "Unknown data type" << endl;
+        for (auto col : columns) {
+          delete col;
+        }
         return DB_FAILED;
       }
-      column = new Column(column_name, kTypeChar, stoi(len), index, true, unique);
+
+      if (unique) {
+        unique_keys.push_back(column_name);
+      }
+
+      Column *column;
+      if (type_id == TypeId::kTypeChar) {
+        column = new Column(column_name, type_id, length, column_index, true, unique);
+      } else {
+        column = new Column(column_name, type_id, column_index, true, unique);
+      }
+      columns.push_back(column);
+      column_index++;
     }
-    if (unique) {
-      unique_keys.push_back(column_name);
-    }
-    columns.push_back(column);
-    index++;
-    node = node->next_;
+    column_node = column_node->next_;
   }
 
-  Schema *schema = new Schema(columns);
-  auto res = clm->CreateTable(table_name, schema, context->GetTransaction(), table_info);
-  if (res != DB_SUCCESS) {
-    return res;
+  TableSchema *schema = new TableSchema(columns);
+
+  dberr_t result = dbs_[current_db_]->catalog_mgr_->CreateTable(table_name, schema, context->GetTransaction(), table_info);
+  if (result != DB_SUCCESS) {
+    delete schema;
+    return result;
   }
 
   for (auto it : unique_keys) {
-    string index_name = "UNIQUE_";
-    index_name += it + "_";
-    index_name += "ON_" + table_name;
-    IndexInfo *index_info;
-    clm->CreateIndex(table_name, index_name, unique_keys, context->GetTransaction(), index_info, "btree");
+    string index_name = "UNIQUE_" + it;
+    index_name += "_ON_" + table_name;
+    IndexInfo *index_info = nullptr;
+    dbs_[current_db_]->catalog_mgr_->CreateIndex(table_name, index_name, unique_keys, context->GetTransaction(), index_info, "bptree");
   }
 
-  if(primary_keys.size() > 0) {
-    string index_name = "AUTO_CREATED_INDEX_OF_";
-    for (auto it: primary_keys) index_name += it + "_";
-    index_name += "ON_" + table_name;
-    IndexInfo *index_info;
-    clm->CreateIndex(table_name, index_name, primary_keys, context->GetTransaction(), index_info, "btree");
+  if (!primary_keys.empty()) {
+    string index_name = "PRIMARY_KEY_ON_" + table_name;
+    IndexInfo *index_info = nullptr;
+    dbs_[current_db_]->catalog_mgr_->CreateIndex(table_name, index_name, primary_keys, context->GetTransaction(), index_info, "bptree");
   }
 
-  return res;
+  cout << "Table '" << table_name << "' created." << endl;
+  return DB_SUCCESS;
 }
 
 /**

@@ -1,4 +1,5 @@
 #include "executor/executors/index_scan_executor.h"
+#include <planner/expressions/logic_expression.h>
 
 class RowidCompare {
  public:
@@ -60,7 +61,13 @@ vector<RowId> IndexScanExecutor::IndexScan(AbstractExpressionRef predicate) {
       sort(lhs.begin(), lhs.end(), RowidCompare());
       sort(rhs.begin(), rhs.end(), RowidCompare());
       vector<RowId> result;
-      set_intersection(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(), back_inserter(result), RowidCompare());
+      auto logic_type = dynamic_pointer_cast<LogicExpression>(predicate)->logic_type_;
+      if (logic_type == LogicType::And) {
+        set_intersection(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(), back_inserter(result), RowidCompare());
+      } else if (logic_type == LogicType::Or) {
+        set_union(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(), back_inserter(result), RowidCompare());
+      } 
+      //set_intersection(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(), back_inserter(result), RowidCompare());
       return result;
     }
     case ExpressionType::ComparisonExpression: {

@@ -146,8 +146,8 @@ void LeafPage::MoveHalfTo(LeafPage *recipient) {
   int half = size / 2;
   recipient->CopyNFrom(pairs_off+half*pair_size,size-half);
   SetSize(half);
-  recipient->SetNextPageId(this->GetNextPageId());//TO CHECK:更新next_page_id/NextPageId
-  this->SetNextPageId(recipient->GetPageId());
+  //recipient->SetNextPageId(this->GetNextPageId());//TO CHECK:更新next_page_id/NextPageId
+  //this->SetNextPageId(recipient->GetPageId());
 }
 
 /*
